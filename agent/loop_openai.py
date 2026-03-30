@@ -83,32 +83,59 @@ def run_agent_turn_openai(
             break
 
         if choice.finish_reason == "tool_calls":
-            tool_call = message.tool_calls[0]
-            try:
-                args = json.loads(tool_call.function.arguments)
-            except json.JSONDecodeError:
-                result.error = "Failed to parse tool call arguments from model."
-                break
-
-            sql = args.get("sql", "")
-            result.sql_attempts.append(sql)
-
-            # Append the assistant message (with tool_calls) to history
+            # Append the assistant message first (required before any tool results)
             messages.append(message)
 
-            # Execute the query
-            query_result = run_query(sql)
+            # Execute ALL tool calls and collect results — OpenAI requires a
+            # tool result message for every tool_call_id before the next turn.
+            tool_results = []
+            turn_had_error = False
+            error_detail = ""
 
-            if query_result.error:
-                attempt += 1
-                if attempt >= settings.MAX_LLM_RETRIES:
-                    result.error = f"Query failed after {settings.MAX_LLM_RETRIES} attempts. Last error: {query_result.error}"
-                    # Send the error back so the model can give a graceful answer
-                    messages.append({
+            for tool_call in message.tool_calls:
+                try:
+                    args = json.loads(tool_call.function.arguments)
+                except json.JSONDecodeError:
+                    tool_results.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
-                        "content": f"Error: {query_result.error}",
+                        "content": "Error: Failed to parse tool arguments.",
                     })
+                    turn_had_error = True
+                    error_detail = "Failed to parse tool call arguments from model."
+                    continue
+
+                sql = args.get("sql", "")
+                result.sql_attempts.append(sql)
+                query_result = run_query(sql)
+
+                if query_result.error:
+                    turn_had_error = True
+                    error_detail = query_result.error
+                    error_msg = build_error_correction_message(sql, query_result.error, attempt + 1)
+                    tool_results.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": f"Error: {query_result.error}\n\n{error_msg}",
+                    })
+                else:
+                    last_df = query_result.df
+                    last_sql = sql
+                    was_truncated = query_result.was_truncated
+                    result_text = _format_df_for_llm(query_result.df, query_result.was_truncated)
+                    tool_results.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": result_text,
+                    })
+
+            # Append all tool results at once
+            messages.extend(tool_results)
+
+            if turn_had_error:
+                attempt += 1
+                if attempt >= settings.MAX_LLM_RETRIES:
+                    result.error = f"Query failed after {settings.MAX_LLM_RETRIES} attempts. Last error: {error_detail}"
                     final_response = client.chat.completions.create(
                         model=settings.OPENAI_MODEL,
                         max_tokens=1024,
@@ -117,25 +144,6 @@ def run_agent_turn_openai(
                     )
                     result.final_answer = final_response.choices[0].message.content or ""
                     break
-
-                # Inject error + correction hint, retry
-                error_msg = build_error_correction_message(sql, query_result.error, attempt)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": f"Error: {query_result.error}\n\n{error_msg}",
-                })
-            else:
-                last_df = query_result.df
-                last_sql = sql
-                was_truncated = query_result.was_truncated
-
-                result_text = _format_df_for_llm(query_result.df, query_result.was_truncated)
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": result_text,
-                })
         else:
             result.error = f"Unexpected finish reason: {choice.finish_reason}"
             break
