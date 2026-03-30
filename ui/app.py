@@ -2,8 +2,10 @@ import os
 
 import anthropic
 import streamlit as st
+from openai import OpenAI
 
 from agent.loop import run_agent_turn
+from agent.loop_openai import run_agent_turn_openai
 from config.settings import settings
 from db.connection import test_connection
 from logging_.logger import log_turn
@@ -18,12 +20,14 @@ from ui.components import (
 )
 
 
-def _check_setup() -> list[str]:
+def _check_setup(provider: str) -> list[str]:
     issues = []
     if not settings.DB_URL:
         issues.append("DB_URL is not set in .env")
-    if not settings.ANTHROPIC_API_KEY:
+    if provider == "claude" and not settings.ANTHROPIC_API_KEY:
         issues.append("ANTHROPIC_API_KEY is not set in .env")
+    if provider == "openai" and not settings.OPENAI_API_KEY:
+        issues.append("OPENAI_API_KEY is not set in .env")
     return issues
 
 
@@ -40,6 +44,8 @@ def _init_session_state() -> None:
         st.session_state.schema_cache = None
     if "client" not in st.session_state:
         st.session_state.client = None
+    if "provider" not in st.session_state:
+        st.session_state.provider = settings.LLM_PROVIDER
 
 
 def _load_schema() -> None:
@@ -91,10 +97,25 @@ def main() -> None:
             st.rerun()
 
         st.divider()
-        st.caption(f"Model: {settings.CLAUDE_MODEL}")
+
+        # Provider selector
+        provider = st.radio(
+            "LLM Provider",
+            options=["claude", "openai"],
+            index=0 if st.session_state.provider == "claude" else 1,
+            format_func=lambda x: "Claude (Anthropic)" if x == "claude" else "GPT (OpenAI)",
+        )
+        if provider != st.session_state.provider:
+            st.session_state.provider = provider
+            st.session_state.client = None  # Force re-init with new provider
+
+        if st.session_state.provider == "claude":
+            st.caption(f"Model: {settings.CLAUDE_MODEL}")
+        else:
+            st.caption(f"Model: {settings.OPENAI_MODEL}")
 
     # --- Setup check ---
-    setup_issues = _check_setup()
+    setup_issues = _check_setup(st.session_state.provider)
     if setup_issues:
         st.error("**Setup required before using DB Agent:**")
         for issue in setup_issues:
@@ -104,7 +125,10 @@ def main() -> None:
 
     # --- Init client ---
     if st.session_state.client is None:
-        st.session_state.client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        if st.session_state.provider == "openai":
+            st.session_state.client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        else:
+            st.session_state.client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
     # --- Auto-connect on first load ---
     if not st.session_state.db_ok:
@@ -162,12 +186,20 @@ def main() -> None:
     # Run agent
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
-            turn_result = run_agent_turn(
-                question=question,
-                conversation_history=st.session_state.agent_history,
-                schema_context=schema_context,
-                client=st.session_state.client,
-            )
+            if st.session_state.provider == "openai":
+                turn_result = run_agent_turn_openai(
+                    question=question,
+                    conversation_history=st.session_state.agent_history,
+                    schema_context=schema_context,
+                    client=st.session_state.client,
+                )
+            else:
+                turn_result = run_agent_turn(
+                    question=question,
+                    conversation_history=st.session_state.agent_history,
+                    schema_context=schema_context,
+                    client=st.session_state.client,
+                )
 
         # Render response
         if turn_result.sql_attempts:

@@ -4,9 +4,9 @@ import streamlit as st
 
 def render_connection_status(ok: bool, detail: str) -> None:
     if ok:
-        st.sidebar.success(f"Connected\n\n{detail}", icon="")
+        st.sidebar.success(f"Connected\n\n{detail}")
     else:
-        st.sidebar.error(f"Disconnected\n\n{detail}", icon="")
+        st.sidebar.error(f"Disconnected\n\n{detail}")
 
 
 def render_sql_block(sql: str, attempt_number: int | None = None) -> None:
