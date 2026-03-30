@@ -1,0 +1,19 @@
+version: "1.0"
+database_description: ""  # Describe your database here (e.g. "E-commerce order management system")
+tables: {}
+# Run `python scripts/introspect_db.py` to auto-populate this file from your database.
+# Then fill in the 'description' fields for tables and columns to improve LLM accuracy.
+#
+# Example structure:
+#
+# tables:
+#   orders:
+#     description: "One row per customer order."
+#     columns:
+#       total_amount:
+#         description: "Order total in USD cents (divide by 100 for dollars)"
+#         units: "USD cents"
+#         enum_values: null
+#       status:
+#         description: "Current order status"
+#         enum_values: [pending, confirmed, shipped, delivered, cancelled]
