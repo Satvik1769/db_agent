@@ -37,6 +37,11 @@ def _score_table(query_tokens: set[str], table: EnrichedTable) -> float:
         desc_tokens = _tokenize(table.description)
         score += len(query_tokens & desc_tokens) * 1.5
 
+    # Table notes match (business guidance — high weight)
+    if table.notes:
+        notes_tokens = _tokenize(table.notes)
+        score += len(query_tokens & notes_tokens) * 2.5
+
     # Column name matches
     for col in table.columns:
         col_tokens = _tokenize(col.name)
@@ -77,8 +82,17 @@ def select_relevant_tables(
         for name, table in all_tables.items()
     }
 
-    # Sort by score descending; ties broken by table name for determinism
-    ranked = sorted(scores.items(), key=lambda x: (-x[1], x[0]))
+    def _domain_prefix_penalty(table_name: str) -> float:
+        """Penalize tables whose domain-prefix token is absent from the query.
+        E.g. 'commodity_*' tables get penalized when the query has no 'commodity' token.
+        """
+        first_token = table_name.split("_")[0].lower()
+        if first_token not in _STOPWORDS and first_token not in query_tokens and len(first_token) > 2:
+            return 1.0
+        return 0.0
+
+    # Sort by score descending; ties broken by domain-prefix relevance, then alphabetical
+    ranked = sorted(scores.items(), key=lambda x: (-x[1], _domain_prefix_penalty(x[0]), x[0]))
     selected = [name for name, _ in ranked[:max_tables]]
 
     return {name: all_tables[name] for name in selected}

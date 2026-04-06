@@ -45,6 +45,8 @@ def merge_into_yaml(existing: dict, introspected: dict, engine, n_samples: int, 
         table_entry = existing["tables"][table_name]
         if "description" not in table_entry:
             table_entry["description"] = ""
+        if "notes" not in table_entry:
+            table_entry["notes"] = ""
         if "columns" not in table_entry:
             table_entry["columns"] = {}
 

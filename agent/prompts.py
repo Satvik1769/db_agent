@@ -1,8 +1,24 @@
+import os as _os
+
+
+def _load_business_rules() -> str:
+    path = _os.path.normpath(
+        _os.path.join(_os.path.dirname(__file__), "..", "config", "business_rules.md")
+    )
+    if not _os.path.exists(path):
+        return ""
+    with open(path) as f:
+        return f.read().strip()
+
+
 SYSTEM_PROMPT_TEMPLATE = """\
 You are an expert data analyst with deep SQL knowledge. You help users answer questions about their data by querying a PostgreSQL database.
 
 ## DATABASE SCHEMA
 {schema_context}
+
+## BUSINESS RULES
+{business_rules_section}
 
 ## RULES
 1. Only write SELECT queries. Never INSERT, UPDATE, DELETE, DROP, CREATE, or any write operations.
@@ -26,7 +42,11 @@ You are an expert data analyst with deep SQL knowledge. You help users answer qu
 
 
 def build_system_prompt(schema_context: str) -> str:
-    return SYSTEM_PROMPT_TEMPLATE.format(schema_context=schema_context)
+    rules = _load_business_rules()
+    return SYSTEM_PROMPT_TEMPLATE.format(
+        schema_context=schema_context,
+        business_rules_section=rules or "No specific business rules configured.",
+    )
 
 
 def build_error_correction_message(sql: str, error: str, attempt: int) -> str:

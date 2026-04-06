@@ -24,6 +24,7 @@ class EnrichedTable:
     schema: str
     name: str
     description: str = ""
+    notes: str = ""
     columns: list[EnrichedColumn] = field(default_factory=list)
     sample_rows: list[dict] = field(default_factory=list)
 
@@ -66,6 +67,7 @@ def merge_catalog(
             schema=table_meta.schema,
             name=table_name,
             description=yaml_table.get("description", ""),
+            notes=yaml_table.get("notes", ""),
             columns=enriched_cols,
             sample_rows=sample_rows,
         )
@@ -82,6 +84,8 @@ def build_schema_context(tables: dict[str, EnrichedTable], include_samples: bool
         header = f"## Table: {table.schema}.{table_name}"
         if table.description:
             header += f"\n{table.description}"
+        if table.notes:
+            header += f"\n> **Table Note:** {table.notes}"
         parts.append(header)
 
         # Column table
